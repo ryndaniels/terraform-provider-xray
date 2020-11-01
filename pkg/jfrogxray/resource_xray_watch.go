@@ -2,6 +2,8 @@ package jfrogxray
 
 import (
 	"context"
+	"log"
+	"net/http"
 
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/xero-oss/go-xray/xray"
@@ -171,6 +173,56 @@ func unpackAssignedPolicy(rawCfg interface{}) *v2.WatchAssignedPolicy {
 	return policy
 }
 
+func packProjectResources(resources *v2.WatchProjectResources) []interface{} {
+	if resources == nil || resources.Resources == nil {
+		return []interface{}{}
+	}
+
+	packedResources := []interface{}{}
+	for _, res := range *resources.Resources {
+		m := make(map[string]interface{})
+		m["type"] = res.Type
+		m["bin_mgr_id"] = res.BinaryManagerId
+		m["name"] = res.Name
+		m["filters"] = packFilters(res.Filters)
+		packedResources = append(packedResources, m)
+	}
+
+	return packedResources
+}
+
+func packFilters(filters *[]v2.WatchFilter) []interface{} {
+	if filters == nil {
+		return []interface{}{}
+	}
+
+	packedFilters := []interface{}{}
+	for _, f := range *filters {
+		m := make(map[string]interface{})
+		m["type"] = f.Type
+		m["value"] = f.Value.WatchFilterValue
+		packedFilters = append(packedFilters, m)
+	}
+
+	return packedFilters
+}
+
+func packAssignedPolicies(policies *[]v2.WatchAssignedPolicy) []interface{} {
+	if policies == nil {
+		return []interface{}{}
+	}
+
+	packedPolicies := []interface{}{}
+	for _, p := range *policies {
+		m := make(map[string]interface{})
+		m["name"] = p.Name
+		m["type"] = p.Type
+		packedPolicies = append(packedPolicies, m)
+	}
+
+	return packedPolicies
+}
+
 func resourceXrayWatchCreate(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*xray.Xray)
 
@@ -181,22 +233,51 @@ func resourceXrayWatchCreate(d *schema.ResourceData, meta interface{}) error {
 		return err
 	}
 
-	d.SetId(*watch.GeneralData.Name)
+	d.SetId(*watch.GeneralData.Name) // ID may be returned according to the API docs, but not in go-xray
 
 	return resourceXrayWatchRead(d, meta)
 }
 
 func resourceXrayWatchRead(d *schema.ResourceData, meta interface{}) error {
+	c := meta.(*xray.Xray)
+
+	watch, resp, err := c.V2.Watches.GetWatch(context.Background(), d.Id())
+	if resp.StatusCode == http.StatusNotFound {
+		log.Printf("[WARN] Xray watch (%s) not found, removing from state", d.Id())
+		d.SetId("")
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	d.Set("description", watch.GeneralData.Description)
+	d.Set("active", watch.GeneralData.Active)
+	d.Set("resources", packProjectResources(watch.ProjectResources))
+	d.Set("assigned_policies", packAssignedPolicies(watch.AssignedPolicies))
 
 	return nil
 }
 
 func resourceXrayWatchUpdate(d *schema.ResourceData, meta interface{}) error {
+	c := meta.(*xray.Xray)
 
-	return nil
+	watch := unpackWatch(d)
+	_, err := c.V2.Watches.UpdateWatch(context.Background(), d.Id(), watch)
+	if err != nil {
+		return err
+	}
+
+	d.SetId(*watch.GeneralData.Name)
+	return resourceXrayWatchRead(d, meta)
 }
 
 func resourceXrayWatchDelete(d *schema.ResourceData, meta interface{}) error {
+	c := meta.(*xray.Xray)
 
-	return nil
+	resp, err := c.V2.Watches.DeleteWatch(context.Background(), d.Id())
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+
+	return err
 }
