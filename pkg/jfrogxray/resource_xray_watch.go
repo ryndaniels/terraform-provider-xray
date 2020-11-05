@@ -182,8 +182,12 @@ func packProjectResources(resources *v2.WatchProjectResources) []interface{} {
 	for _, res := range *resources.Resources {
 		m := make(map[string]interface{})
 		m["type"] = res.Type
-		m["bin_mgr_id"] = res.BinaryManagerId
-		m["name"] = res.Name
+		if res.Name != nil {
+			m["name"] = res.Name
+		}
+		if res.BinaryManagerId != nil {
+			m["bin_mgr_id"] = res.BinaryManagerId
+		}
 		m["filters"] = packFilters(res.Filters)
 		packedResources = append(packedResources, m)
 	}
@@ -234,7 +238,6 @@ func resourceXrayWatchCreate(d *schema.ResourceData, meta interface{}) error {
 	}
 
 	d.SetId(*watch.GeneralData.Name) // ID may be returned according to the API docs, but not in go-xray
-
 	return resourceXrayWatchRead(d, meta)
 }
 
