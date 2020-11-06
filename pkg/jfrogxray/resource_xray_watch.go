@@ -109,10 +109,11 @@ func unpackWatch(d *schema.ResourceData) *v2.Watch {
 
 	pr := &v2.WatchProjectResources{}
 	if v, ok := d.GetOk("resources"); ok {
-		r := []*v2.WatchProjectResource{}
+		r := &[]v2.WatchProjectResource{}
 		for _, res := range v.([]interface{}) {
-			r = append(r, unpackProjectResource(res))
+			*r = append(*r, *unpackProjectResource(res))
 		}
+		pr.Resources = r
 	}
 	watch.ProjectResources = pr
 
