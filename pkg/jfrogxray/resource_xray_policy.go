@@ -372,12 +372,24 @@ func resourceXrayPolicyRead(d *schema.ResourceData, meta interface{}) error {
 		return err
 	}
 
-	d.Set("type", policy.Type)
-	d.Set("description", policy.Description)
-	d.Set("author", policy.Author)
-	d.Set("created", policy.Created)
-	d.Set("modified", policy.Modified)
-	d.Set("rules", packRules(policy.Rules))
+	if err := d.Set("type", policy.Type); err != nil {
+		return err
+	}
+	if err := d.Set("description", policy.Description); err != nil {
+		return err
+	}
+	if err := d.Set("author", policy.Author); err != nil {
+		return err
+	}
+	if err := d.Set("created", policy.Created); err != nil {
+		return err
+	}
+	if err := d.Set("modified", policy.Modified); err != nil {
+		return err
+	}
+	if err := d.Set("rules", packRules(policy.Rules)); err != nil {
+		return err
+	}
 
 	return nil
 }

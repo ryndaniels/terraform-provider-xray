@@ -12,6 +12,10 @@ test:
 
 testacc:
 	TF_ACC=1 go test $(TEST) -v -parallel 20 $(TESTARGS) -timeout 120m
+	
+lint:
+	@echo "==> Checking source code against linters..."
+	tfproviderlint ./$(PKG_NAME)/...
 
 fmt:
 	@echo "==> Fixing source code with gofmt..."

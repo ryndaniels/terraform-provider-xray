@@ -254,10 +254,18 @@ func resourceXrayWatchRead(d *schema.ResourceData, meta interface{}) error {
 		return err
 	}
 
-	d.Set("description", watch.GeneralData.Description)
-	d.Set("active", watch.GeneralData.Active)
-	d.Set("resources", packProjectResources(watch.ProjectResources))
-	d.Set("assigned_policies", packAssignedPolicies(watch.AssignedPolicies))
+	if err := d.Set("description", watch.GeneralData.Description); err != nil {
+		return err
+	}
+	if err := d.Set("active", watch.GeneralData.Active); err != nil {
+		return err
+	}
+	if err := d.Set("resources", packProjectResources(watch.ProjectResources)); err != nil {
+		return err
+	}
+	if err := d.Set("assigned_policies", packAssignedPolicies(watch.AssignedPolicies)); err != nil {
+		return err
+	}
 
 	return nil
 }

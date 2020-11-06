@@ -1,5 +1,7 @@
 # Terraform Provider Xray
 
+This provider provides (limited) support for JFrog Xray. It is modeled after the [Atlassian Artifactory Provider](https://github.com/atlassian/terraform-provider-artifactory).
+
 ## Build the Provider
 If you're building the provider, follow the instructions to [install it as a plugin](https://www.terraform.io/docs/plugins/basics.html#installing-a-plugin).
 After placing it into your plugins directory,  run `terraform init` to initialize it.
