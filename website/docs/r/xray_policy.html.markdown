@@ -45,7 +45,7 @@ resource "xray_watch" "example" {
   ]
   assigned_policies [
     {
-      name = "License Policy Name"
+      name = xray_policy.example.name
       type = "security"
     }
   ]
