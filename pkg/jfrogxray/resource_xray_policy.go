@@ -38,7 +38,7 @@ func resourceXrayPolicy() *schema.Resource {
 			},
 			"author": {
 				Type:     schema.TypeString,
-				Optional: true,
+				Computed: true,
 			},
 			"created": {
 				Type:     schema.TypeString,
@@ -275,18 +275,39 @@ func expandActions(l []interface{}) *v1.PolicyRuleActions {
 	m := l[0].(map[string]interface{}) // We made this a list of one to make schema validation easier
 
 	if v, ok := m["mails"]; ok && len(v.([]interface{})) > 0 {
-		*actions.Mails = v.([]string) // TODO will need to test with this to make sure the type assertions work
+		m := v.([]interface{})
+		mails := make([]string, 0, len(m))
+		for _, mail := range m {
+			mails = append(mails, mail.(string))
+		}
+		actions.Mails = &mails
 	}
 	if v, ok := m["fail_build"]; ok {
 		actions.FailBuild = xray.Bool(v.(bool))
 	}
-	if v, ok := m["block_download"]; ok && len(v.([]interface{})) > 0 {
-		vMap := v.(map[string]interface{})
-		actions.BlockDownload = &v1.BlockDownloadSettings{
-			Unscanned: xray.Bool(vMap["unscanned"].(bool)),
-			Active:    xray.Bool(vMap["active"].(bool)),
+
+	if v, ok := m["block_download"]; ok {
+		if len(v.([]interface{})) > 0 {
+			vList := v.([]interface{})
+			vMap := vList[0].(map[string]interface{})
+
+			actions.BlockDownload = &v1.BlockDownloadSettings{
+				Unscanned: xray.Bool(vMap["unscanned"].(bool)),
+				Active:    xray.Bool(vMap["active"].(bool)),
+			}
+		} else {
+			// TODO will need to figure out how to get this to not show up as a diff
+			// rules.0.actions.0.block_download.#:           "1" => "0"
+			//rules.0.actions.0.block_download.0.active:    "false" => ""
+			//rules.0.actions.0.block_download.0.unscanned: "false" => ""
+			actions.BlockDownload = &v1.BlockDownloadSettings{
+				Unscanned: xray.Bool(false),
+				Active:    xray.Bool(false),
+			}
 		}
 	}
+
+	// TODO may need to do the same massaging here we did for mails
 	if v, ok := m["webhooks"]; ok && len(v.([]interface{})) > 0 {
 		*actions.Webhooks = v.([]string)
 	}
