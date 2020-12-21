@@ -2,20 +2,21 @@ package jfrogxray
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/xero-oss/go-xray/xray"
-	"github.com/xero-oss/go-xray/xray/v1"
+	v1 "github.com/xero-oss/go-xray/xray/v1"
 )
 
 func resourceXrayPolicy() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceXrayWatchCreate,
-		Read:   resourceXrayWatchRead,
-		Update: resourceXrayWatchUpdate,
-		Delete: resourceXrayWatchDelete,
+		Create: resourceXrayPolicyCreate,
+		Read:   resourceXrayPolicyRead,
+		Update: resourceXrayPolicyUpdate,
+		Delete: resourceXrayPolicyDelete,
 
 		Importer: &schema.ResourceImporter{
 			State: schema.ImportStatePassthrough,
@@ -49,7 +50,7 @@ func resourceXrayPolicy() *schema.Resource {
 			},
 
 			"rules": {
-				Type:     schema.TypeSet,
+				Type:     schema.TypeList,
 				Required: true,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
@@ -63,7 +64,7 @@ func resourceXrayPolicy() *schema.Resource {
 						},
 
 						"criteria": {
-							Type:     schema.TypeSet,
+							Type:     schema.TypeList,
 							Required: true,
 							MinItems: 1,
 							MaxItems: 1,
@@ -73,12 +74,12 @@ func resourceXrayPolicy() *schema.Resource {
 									"min_severity": {
 										Type:          schema.TypeString,
 										Optional:      true,
-										ConflictsWith: []string{"allow_unknown", "banned_licenses", "allowed_licenses"},
+										ConflictsWith: []string{"rules.criteria.0.allow_unknown", "rules.criteria.0.banned_licenses", "rules.criteria.0.allowed_licenses"},
 									},
 									"cvss_range": {
-										Type:          schema.TypeSet,
+										Type:          schema.TypeList,
 										Optional:      true,
-										ConflictsWith: []string{"allow_unknown", "banned_licenses", "allowed_licenses"},
+										ConflictsWith: []string{"rules.criteria.0.allow_unknown", "rules.criteria.0.banned_licenses", "rules.criteria.0.allowed_licenses"},
 										MaxItems:      1,
 										Elem: &schema.Resource{
 											Schema: map[string]*schema.Schema{
@@ -97,12 +98,12 @@ func resourceXrayPolicy() *schema.Resource {
 									"allow_unknown": {
 										Type:          schema.TypeBool,
 										Optional:      true,
-										ConflictsWith: []string{"min_severity", "cvss_range"},
+										ConflictsWith: []string{"rules.criteria.0.min_severity", "rules.criteria.0.cvss_range"},
 									},
 									"banned_licenses": {
 										Type:          schema.TypeList,
 										Optional:      true,
-										ConflictsWith: []string{"min_severity", "cvss_range"},
+										ConflictsWith: []string{"rules.criteria.0.min_severity", "rules.criteria.0.cvss_range"},
 										Elem: &schema.Schema{
 											Type: schema.TypeString,
 										},
@@ -110,7 +111,7 @@ func resourceXrayPolicy() *schema.Resource {
 									"allowed_licenses": {
 										Type:          schema.TypeList,
 										Optional:      true,
-										ConflictsWith: []string{"min_severity", "cvss_range"},
+										ConflictsWith: []string{"rules.criteria.0.min_severity", "rules.criteria.0.cvss_range"},
 										Elem: &schema.Schema{
 											Type: schema.TypeString,
 										},
@@ -119,7 +120,7 @@ func resourceXrayPolicy() *schema.Resource {
 							},
 						},
 						"actions": {
-							Type:     schema.TypeSet,
+							Type:     schema.TypeList,
 							Optional: true,
 							MaxItems: 1,
 							Elem: &schema.Resource{
@@ -136,7 +137,7 @@ func resourceXrayPolicy() *schema.Resource {
 										Optional: true,
 									},
 									"block_download": {
-										Type:     schema.TypeSet,
+										Type:     schema.TypeList,
 										Optional: true,
 										MaxItems: 1,
 										Elem: &schema.Resource{
@@ -173,7 +174,7 @@ func resourceXrayPolicy() *schema.Resource {
 	}
 }
 
-func unpackPolicy(d *schema.ResourceData) *v1.Policy {
+func expandPolicy(d *schema.ResourceData) *v1.Policy {
 	policy := new(v1.Policy)
 
 	policy.Name = xray.String(d.Get("name").(string))
@@ -186,174 +187,220 @@ func unpackPolicy(d *schema.ResourceData) *v1.Policy {
 	if v, ok := d.GetOk("author"); ok {
 		policy.Author = xray.String(v.(string))
 	}
-
-	rules := &[]v1.PolicyRule{}
-	for _, r := range d.Get("rules").([]interface{}) {
-		*rules = append(*rules, *unpackRule(r))
-	}
-	policy.Rules = rules
+	policyRules := expandRules(d.Get("rules").([]interface{}))
+	policy.Rules = &policyRules
 
 	return policy
 }
 
-func unpackRule(rawCfg interface{}) *v1.PolicyRule {
-	rule := new(v1.PolicyRule)
+func expandRules(configured []interface{}) []v1.PolicyRule {
+	rules := make([]v1.PolicyRule, 0, len(configured))
 
-	cfg := rawCfg.(map[string]interface{})
-	rule.Name = xray.String(cfg["name"].(string))
-	rule.Priority = xray.Int(cfg["priority"].(int))
+	for _, raw := range configured {
+		rule := new(v1.PolicyRule)
+		data := raw.(map[string]interface{})
+		rule.Name = xray.String(data["name"].(string))
+		rule.Priority = xray.Int(data["priority"].(int))
 
-	rule.Criteria = unpackCriteria(cfg["criteria"].([]interface{}))
-	if v, ok := cfg["actions"]; ok {
-		rule.Actions = unpackActions(v.([]interface{}))
+		rule.Criteria = expandCriteria(data["criteria"].([]interface{}))
+		if v, ok := data["actions"]; ok {
+			rule.Actions = expandActions(v.([]interface{}))
+		}
+		rules = append(rules, *rule)
 	}
 
-	return rule
+	return rules
 }
 
-func unpackCriteria(rawCfg []interface{}) *v1.PolicyRuleCriteria {
+func expandCriteria(l []interface{}) *v1.PolicyRuleCriteria {
+	if len(l) == 0 {
+		return nil
+	}
+
+	m := l[0].(map[string]interface{}) // We made this a list of one to make schema validation easier
 	criteria := new(v1.PolicyRuleCriteria)
 
-	cfg := rawCfg[0].(map[string]interface{}) // We made this a list of one to make schema validation easier
+	// The API doesn't allow both severity and license criteria to be _set_, even if they have empty values
+	// So we have to figure out which group is actually empty and not even set it
+	minSev := xray.String(m["min_severity"].(string))
+	cvss := expandCVSSRange(m["cvss_range"].([]interface{}))
+	allowUnk := xray.Bool(m["allow_unknown"].(bool))
+	banned := expandLicenses(m["banned_licenses"].([]interface{}))
+	allowed := expandLicenses(m["allowed_licenses"].([]interface{}))
 
-	if v, ok := cfg["min_severity"]; ok {
-		criteria.MinimumSeverity = xray.String(v.(string))
-	}
-	if v, ok := cfg["cvss_range"]; ok {
-		vMap := v.(map[string]interface{})
-		criteria.CVSSRange = &v1.PolicyCVSSRange{
-			To:   xray.Int(vMap["to"].(int)),
-			From: xray.Int(vMap["from"].(int)),
-		}
-	}
-	if v, ok := cfg["allow_unknown"]; ok {
-		criteria.AllowUnkown = xray.Bool(v.(bool)) // "Unkown" is a typo in xray-oss
-	}
-	if v, ok := cfg["banned_licenses"]; ok {
-		*criteria.BannedLicenses = v.([]string)
-	}
-	if v, ok := cfg["allowed_licenses"]; ok {
-		*criteria.AllowedLicenses = v.([]string)
+	if *minSev == "" && cvss == nil {
+		// If these are both the default values, we must be using license criteria
+		criteria.AllowUnkown = allowUnk // "Unkown" is a typo in xray-oss
+		criteria.BannedLicenses = banned
+		criteria.AllowedLicenses = allowed
+	} else {
+		criteria.MinimumSeverity = minSev
+		criteria.CVSSRange = cvss
 	}
 
 	return criteria
 }
 
-func unpackActions(rawCfg []interface{}) *v1.PolicyRuleActions {
-	actions := new(v1.PolicyRuleActions)
-
-	cfg := rawCfg[0].(map[string]interface{}) // We made this a list of one to make schema validation easier
-
-	if v, ok := cfg["mails"]; ok {
-		*actions.Mails = v.([]string)
+func expandCVSSRange(l []interface{}) *v1.PolicyCVSSRange {
+	if len(l) == 0 {
+		return nil
 	}
-	if v, ok := cfg["fail_build"]; ok {
+
+	m := l[0].(map[string]interface{})
+	cvssrange := &v1.PolicyCVSSRange{
+		To:   xray.Int(m["to"].(int)),
+		From: xray.Int(m["from"].(int)),
+	}
+	return cvssrange
+}
+
+func expandLicenses(l []interface{}) *[]string {
+	if len(l) == 0 {
+		return nil
+	}
+
+	licenses := make([]string, 0, len(l))
+	for _, license := range l {
+		licenses = append(licenses, license.(string))
+	}
+	return &licenses
+}
+
+func expandActions(l []interface{}) *v1.PolicyRuleActions {
+	if len(l) == 0 {
+		return nil
+	}
+	
+	actions := new(v1.PolicyRuleActions)
+	m := l[0].(map[string]interface{}) // We made this a list of one to make schema validation easier
+
+	if v, ok := m["mails"]; ok && len(v.([]interface{})) > 0 {
+		*actions.Mails = v.([]string) // TODO will need to test with this to make sure the type assertions work
+	}
+	if v, ok := m["fail_build"]; ok {
 		actions.FailBuild = xray.Bool(v.(bool))
 	}
-	if v, ok := cfg["block_download"]; ok {
+	if v, ok := m["block_download"]; ok && len(v.([]interface{})) > 0 {
 		vMap := v.(map[string]interface{})
 		actions.BlockDownload = &v1.BlockDownloadSettings{
 			Unscanned: xray.Bool(vMap["unscanned"].(bool)),
 			Active:    xray.Bool(vMap["active"].(bool)),
 		}
 	}
-	if v, ok := cfg["webhooks"]; ok {
+	if v, ok := m["webhooks"]; ok && len(v.([]interface{})) > 0 {
 		*actions.Webhooks = v.([]string)
 	}
-	if v, ok := cfg["custom_severity"]; ok {
+	if v, ok := m["custom_severity"]; ok {
 		actions.CustomSeverity = xray.String(v.(string))
 	}
 
 	return actions
 }
 
-func packRules(rules *[]v1.PolicyRule) []interface{} {
-	if rules == nil {
-		return []interface{}{}
+func flattenRules(rules []v1.PolicyRule) []interface{} {
+	l := make([]interface{}, len(rules))
+
+	for i, rule := range rules {
+		m := map[string]interface{}{
+			"name": *rule.Name,
+			"priority": *rule.Priority,
+			"criteria": flattenCriteria(rule.Criteria),
+			"actions": flattenActions(rule.Actions),
+		}
+		l[i] = m
 	}
 
-	packedRules := []interface{}{}
-	for _, rule := range *rules {
-		m := make(map[string]interface{})
-		m["name"] = rule.Name
-		m["priority"] = rule.Priority
-		m["criteria"] = packCriteria(rule.Criteria)
-		m["actions"] = packActions(rule.Actions)
-		packedRules = append(packedRules, m)
-	}
-
-	return packedRules
+	return l
 }
 
-func packCriteria(criteria *v1.PolicyRuleCriteria) []interface{} {
+func flattenCriteria(criteria *v1.PolicyRuleCriteria) []interface{} {
 	if criteria == nil {
 		return []interface{}{}
 	}
 
-	packedCriteria := []interface{}{}
-	m := make(map[string]interface{})
-	if criteria.MinimumSeverity != nil {
-		m["min_severity"] = criteria.MinimumSeverity
-	}
-	if criteria.CVSSRange != nil {
-		r := make(map[string]interface{})
-		r["to"] = criteria.CVSSRange.To
-		r["from"] = criteria.CVSSRange.From
-		m["cvss_range"] = r
+	m := map[string]interface{}{
+		"cvss_range": flattenCVSSRange(criteria.CVSSRange),
 	}
 
-	if criteria.AllowUnkown != nil { // Still a typo in the library
-		m["allow_unknown"] = criteria.AllowUnkown
+	if criteria.MinimumSeverity != nil {
+		m["min_severity"] = *criteria.MinimumSeverity
+	}
+	if criteria.AllowUnkown != nil {
+		m["allow_unknown"] = *criteria.AllowUnkown // Same typo in the library
 	}
 	if criteria.BannedLicenses != nil {
-		m["banned_licenses"] = criteria.BannedLicenses
+		m["banned_licenses"] = *criteria.BannedLicenses
 	}
 	if criteria.AllowedLicenses != nil {
-		m["allowed_licenses"] = criteria.AllowedLicenses
+		m["allowed_licenses"] = *criteria.AllowedLicenses
 	}
 
-	packedCriteria = append(packedCriteria, m) // There's just one, but the schema type is a list
-	return packedCriteria
+	return []interface{}{m}
 }
 
-func packActions(actions *v1.PolicyRuleActions) []interface{} {
+func flattenCVSSRange(cvss *v1.PolicyCVSSRange) []interface{} {
+	if cvss == nil {
+		return []interface{}{}
+	}
+	
+	m := map[string]interface{}{
+		"to": *cvss.To,
+		"from": *cvss.From,
+	}
+	return []interface{}{m}
+}
+
+func flattenActions(actions *v1.PolicyRuleActions) []interface{} {
 	if actions == nil {
 		return []interface{}{}
 	}
 
-	packedActions := []interface{}{}
-	m := make(map[string]interface{})
-	if actions.Mails != nil {
-		m["mails"] = actions.Mails
-	}
-	if actions.FailBuild != nil {
-		m["fail_build"] = actions.FailBuild
-	}
-	if actions.BlockDownload != nil {
-		bd := make(map[string]interface{})
-		bd["unscanned"] = actions.BlockDownload.Unscanned
-		bd["active"] = actions.BlockDownload.Active
-		m["block_download"] = bd
-	}
-	if actions.Webhooks != nil {
-		m["webhooks"] = actions.Webhooks
-	}
-	if actions.CustomSeverity != nil {
-		m["custom_severity"] = actions.CustomSeverity
+	m := map[string]interface{}{
+		"block_download": flattenBlockDownload(actions.BlockDownload),
 	}
 
-	packedActions = append(packedActions, m) // Another 1-item list in the schema
-	return packedActions
+	if actions.Mails != nil {
+		m["mails"] = *actions.Mails
+	}
+	if actions.FailBuild != nil {
+		m["fail_build"] = *actions.FailBuild
+	}
+	if actions.Webhooks != nil {
+		m["webhooks"] = *actions.Webhooks
+	}
+	if actions.CustomSeverity != nil {
+		m["custom_severity"] = *actions.CustomSeverity
+	}
+
+	return []interface{}{m}
+}
+
+func flattenBlockDownload(bd *v1.BlockDownloadSettings) []interface{} {
+	if bd == nil {
+		return []interface{}{}
+	}
+
+	m := map[string]interface{}{}
+	if bd.Unscanned != nil {
+		m["unscanned"] = *bd.Unscanned
+	}
+	if bd.Active != nil {
+		m["active"] = *bd.Active
+	}
+
+	return []interface{}{m}
 }
 
 func resourceXrayPolicyCreate(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*xray.Xray)
 
-	policy := unpackPolicy(d)
-
-	_, err := c.V1.Policies.CreatePolicy(context.Background(), policy)
+	policy := expandPolicy(d)
+	resp, err := c.V1.Policies.CreatePolicy(context.Background(), policy)
 	if err != nil {
 		return err
+	}
+	if resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("Unexpected status code when creating resource: %d", resp.StatusCode)
 	}
 
 	d.SetId(*policy.Name)
@@ -372,32 +419,31 @@ func resourceXrayPolicyRead(d *schema.ResourceData, meta interface{}) error {
 		return err
 	}
 
-	if err := d.Set("type", policy.Type); err != nil {
+	if err := d.Set("type", *policy.Type); err != nil {
 		return err
 	}
-	if err := d.Set("description", policy.Description); err != nil {
+	if err := d.Set("description", *policy.Description); err != nil {
 		return err
 	}
-	if err := d.Set("author", policy.Author); err != nil {
+	if err := d.Set("author", *policy.Author); err != nil {
 		return err
 	}
-	if err := d.Set("created", policy.Created); err != nil {
+	if err := d.Set("created", *policy.Created); err != nil {
 		return err
 	}
-	if err := d.Set("modified", policy.Modified); err != nil {
+	if err := d.Set("modified", *policy.Modified); err != nil {
 		return err
 	}
-	if err := d.Set("rules", packRules(policy.Rules)); err != nil {
+	if err := d.Set("rules", flattenRules(*policy.Rules)); err != nil {
 		return err
 	}
-
 	return nil
 }
 
 func resourceXrayPolicyUpdate(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*xray.Xray)
 
-	policy := unpackPolicy(d)
+	policy := expandPolicy(d)
 	_, err := c.V1.Policies.UpdatePolicy(context.Background(), d.Id(), policy)
 	if err != nil {
 		return err

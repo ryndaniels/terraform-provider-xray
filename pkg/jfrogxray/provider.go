@@ -45,7 +45,8 @@ func Provider() terraform.ResourceProvider {
 		},
 
 		ResourcesMap: map[string]*schema.Resource{
-			"xray_watch": resourceXrayWatch(),
+			"xray_watch":  resourceXrayWatch(),
+			"xray_policy": resourceXrayPolicy(),
 		},
 
 		DataSourcesMap: map[string]*schema.Resource{},

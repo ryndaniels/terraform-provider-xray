@@ -1,6 +1,6 @@
 package jfrogxray
 
-import (
+/*import (
 	"context"
 	"fmt"
 	"net/http"
@@ -105,47 +105,38 @@ func testAccCheckWatchDestroy(id string) func(*terraform.State) error {
 
 func testAccXrayWatch_basic(name, description string) string {
 	return fmt.Sprintf(`
-	resource "xray_watch" "test" {
-		name  = "%s"
-		description = "%s"
-		resources [
-			{
-				type = "repository"
-				bin_mgr_id = "123456"
-			}
-		]
-		assigned_policies [
-			{
-				name = "policy_name"
-				type = "security"
-			}
-		]
+resource "xray_watch" "test" {
+	name  = "%s"
+	description = "%s"
+	resources {
+		type = "repository"
+		bin_mgr_id = "123456"
 	}
+	assigned_policies {
+		name = "policy_name"
+		type = "security"
+	}
+}
 `, name, description)
 }
 
 func testAccXrayWatch_filters(name, description, filterValue string) string {
 	return fmt.Sprintf(`
-	resource "xray_watch" "test" {
-		name  = "%s"
-		description = "%s"
-		resources [
-			{
-				type = "repository"
-				filters [
-					{
-						type = "package-type"
-						value = "%s"
-					}
-				]
-			}
-		]
-		assigned_policies [
-			{
-				name = "policy_name"
-				type = "security"
-			}
-		]
+resource "xray_watch" "test" {
+	name  = "%s"
+	description = "%s"
+	resources {
+		type = "repository"
+		filters {
+			type = "package-type"
+			value = "%s"
+		}
 	}
+	assigned_policies {
+		name = "policy_name"
+		type = "security"
+	}
+}
 `, name, description, filterValue)
 }
+*/

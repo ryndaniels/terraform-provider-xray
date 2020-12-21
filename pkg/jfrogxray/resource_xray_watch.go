@@ -7,7 +7,7 @@ import (
 
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/xero-oss/go-xray/xray"
-	"github.com/xero-oss/go-xray/xray/v2"
+	v2 "github.com/xero-oss/go-xray/xray/v2"
 )
 
 func resourceXrayWatch() *schema.Resource {
@@ -37,7 +37,7 @@ func resourceXrayWatch() *schema.Resource {
 			},
 
 			"resources": {
-				Type:     schema.TypeSet,
+				Type:     schema.TypeList,
 				Required: true,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
@@ -54,7 +54,7 @@ func resourceXrayWatch() *schema.Resource {
 							Optional: true,
 						},
 						"filters": {
-							Type:     schema.TypeSet,
+							Type:     schema.TypeList,
 							Optional: true,
 							Elem: &schema.Resource{
 								Schema: map[string]*schema.Schema{
@@ -74,7 +74,7 @@ func resourceXrayWatch() *schema.Resource {
 			},
 
 			"assigned_policies": {
-				Type:     schema.TypeSet,
+				Type:     schema.TypeList,
 				Required: true,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
