@@ -74,20 +74,20 @@ func resourceXrayPolicy() *schema.Resource {
 									"min_severity": {
 										Type:          schema.TypeString,
 										Optional:      true,
-										ConflictsWith: []string{"rules.criteria.0.allow_unknown", "rules.criteria.0.banned_licenses", "rules.criteria.0.allowed_licenses"},
+										ConflictsWith: []string{"rules.criteria.0.allow_unknown", "rules.criteria.0.banned_licenses", "rules.criteria.0.allowed_licenses", "rules.criteria.0.cvss_range"},
 									},
 									"cvss_range": {
 										Type:          schema.TypeList,
 										Optional:      true,
-										ConflictsWith: []string{"rules.criteria.0.allow_unknown", "rules.criteria.0.banned_licenses", "rules.criteria.0.allowed_licenses"},
+										ConflictsWith: []string{"rules.criteria.0.allow_unknown", "rules.criteria.0.banned_licenses", "rules.criteria.0.allowed_licenses", "rules.criteria.0.min_severity"},
 										MaxItems:      1,
 										Elem: &schema.Resource{
 											Schema: map[string]*schema.Schema{
-												"to": {
-													Type:     schema.TypeInt,
+												"from": {
+													Type:     schema.TypeInt, // Yes, the xray web ui allows floats. The go library says ints. :(
 													Required: true,
 												},
-												"from": {
+												"to": {
 													Type:     schema.TypeInt,
 													Required: true,
 												},
@@ -138,7 +138,8 @@ func resourceXrayPolicy() *schema.Resource {
 									},
 									"block_download": {
 										Type:     schema.TypeList,
-										Optional: true,
+										Required: true,
+										// TODO: In an ideal world, this would be optional (see note in expandActions)
 										MaxItems: 1,
 										Elem: &schema.Resource{
 											Schema: map[string]*schema.Schema{
@@ -234,8 +235,12 @@ func expandCriteria(l []interface{}) *v1.PolicyRuleCriteria {
 		criteria.BannedLicenses = banned
 		criteria.AllowedLicenses = allowed
 	} else {
-		criteria.MinimumSeverity = minSev
-		criteria.CVSSRange = cvss
+		// This is also picky about not allowing empty values to be set
+		if cvss == nil {
+			criteria.MinimumSeverity = minSev
+		} else {
+			criteria.CVSSRange = cvss
+		}
 	}
 
 	return criteria
@@ -248,8 +253,8 @@ func expandCVSSRange(l []interface{}) *v1.PolicyCVSSRange {
 
 	m := l[0].(map[string]interface{})
 	cvssrange := &v1.PolicyCVSSRange{
-		To:   xray.Int(m["to"].(int)),
-		From: xray.Int(m["from"].(int)),
+		From:   xray.Int(m["from"].(int)),
+		To: xray.Int(m["to"].(int)),
 	}
 	return cvssrange
 }
@@ -296,20 +301,25 @@ func expandActions(l []interface{}) *v1.PolicyRuleActions {
 				Active:    xray.Bool(vMap["active"].(bool)),
 			}
 		} else {
-			// TODO will need to figure out how to get this to not show up as a diff
-			// rules.0.actions.0.block_download.#:           "1" => "0"
-			//rules.0.actions.0.block_download.0.active:    "false" => ""
-			//rules.0.actions.0.block_download.0.unscanned: "false" => ""
 			actions.BlockDownload = &v1.BlockDownloadSettings{
 				Unscanned: xray.Bool(false),
 				Active:    xray.Bool(false),
 			}
+			// Setting this false/false block feels like it _should_ work, since putting a false/false block in the terraform resource works fine
+			// However, it doesn't, and we end up getting this diff when running acceptance tests when this is optional in the schema
+			// rules.0.actions.0.block_download.#:           "1" => "0"
+			// rules.0.actions.0.block_download.0.active:    "false" => ""
+			// rules.0.actions.0.block_download.0.unscanned: "false" => ""
 		}
 	}
 
-	// TODO may need to do the same massaging here we did for mails
 	if v, ok := m["webhooks"]; ok && len(v.([]interface{})) > 0 {
-		*actions.Webhooks = v.([]string)
+		m := v.([]interface{})
+		webhooks := make([]string, 0, len(m))
+		for _, hook := range m {
+			webhooks = append(webhooks, hook.(string))
+		}
+		actions.Webhooks = &webhooks
 	}
 	if v, ok := m["custom_severity"]; ok {
 		actions.CustomSeverity = xray.String(v.(string))
@@ -365,8 +375,8 @@ func flattenCVSSRange(cvss *v1.PolicyCVSSRange) []interface{} {
 	}
 	
 	m := map[string]interface{}{
-		"to": *cvss.To,
 		"from": *cvss.From,
+		"to": *cvss.To,
 	}
 	return []interface{}{m}
 }
