@@ -47,7 +47,7 @@ func resourceXrayWatch() *schema.Resource {
 						},
 						"name": {
 							Type:     schema.TypeString,
-							Optional: true,
+							Required: true,
 						},
 						"bin_mgr_id": {
 							Type:     schema.TypeString,
@@ -87,6 +87,14 @@ func resourceXrayWatch() *schema.Resource {
 							Required: true,
 						},
 					},
+				},
+			},
+
+			"watch_recipients": {
+				Type:          schema.TypeList,
+				Optional:      true,
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
 				},
 			},
 		},

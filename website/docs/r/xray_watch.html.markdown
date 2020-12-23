@@ -13,27 +13,18 @@ Provides an Xray watch resource.
 ## Example Usage
 
 ```hcl
-# Create a new Xray watch for a repository
+# Create a new Xray watch for all repositories
 resource "xray_watch" "example" {
-  name  = "example watch"
-  description = "example repository watch"
-  resources [
-    {
-      type = "repository"
-      filters [
-        {
-          type = "package-type"
-          value = "Debian"
-        }
-      ]
-    }
-  ]
-  assigned_policies [
-    {
-      name = "policy name"
-      type = "security"
-    }
-  ]
+  name  = "watch-name"
+  description = "watching all repositories"
+  resources {
+    type = "all-repos"
+    name = "All Repositories"
+  }
+  assigned_policies {
+    name = xray_policy.example.name
+    type = "license"
+  }
 }
 ```
 
@@ -52,7 +43,7 @@ The following arguments are supported:
 The top-level `resources` block contains a list of one or more resource objects that each support the following:
 
 * `type` - (Required) Type of resource to be watched
-* `name` - (Optional) A name describing the resource
+* `name` - (Required) A name describing the resource
 * `bin_mgr_id` - (Optional) The ID number of a binary manager resource
 * `filters` - (Optional) Nested argument describing filters to be applied. Defined below.
 

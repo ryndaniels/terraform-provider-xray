@@ -15,40 +15,31 @@ Provides an Xray policy resource. This can be used to create and manage Xray v1 
 ```hcl
 # Create a new Xray license policy
 resource "xray_policy" "example" {
-  name  = "License Policy Name"
-  description = "example of a license policy"
+  name  = "policy-name"
+  description = "license policy description"
   type = "license"
 
-  rules [
+  rules {
     name = "license rule"
     priority = 1
-    criteria [
+    criteria {
       allowed_licenses = ["0BSD", "AAL"]
-    ]
-  ]
+    }
+  }
 }
 
-# Create a new Xray watch for a repository and assign the policy
+# Create a new Xray watch for all repositories and assign the policy
 resource "xray_watch" "example" {
-  name  = "example watch"
-  description = "example repository watch"
-  resources [
-    {
-      type = "repository"
-      filters [
-        {
-          type = "package-type"
-          value = "Debian"
-        }
-      ]
-    }
-  ]
-  assigned_policies [
-    {
-      name = xray_policy.example.name
-      type = "security"
-    }
-  ]
+  name  = "watch-name"
+  description = "watching all repositories"
+  resources {
+    type = "all-repos"
+    name = "All Repositories"
+  }
+  assigned_policies {
+    name = xray_policy.example.name
+    type = "license"
+  }
 }
 ```
 
