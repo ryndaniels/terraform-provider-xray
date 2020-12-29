@@ -62,6 +62,8 @@ func resourceXrayWatch() *schema.Resource {
 										Type:     schema.TypeString,
 										Required: true,
 									},
+									// TODO this can be either a string or possibly a json blob
+									// eg "value":{"ExcludePatterns":[],"IncludePatterns":["*"]}
 									"value": {
 										Type:     schema.TypeString,
 										Required: true,
@@ -101,7 +103,7 @@ func resourceXrayWatch() *schema.Resource {
 	}
 }
 
-func unpackWatch(d *schema.ResourceData) *v2.Watch {
+func expandWatch(d *schema.ResourceData) *v2.Watch {
 	watch := new(v2.Watch)
 
 	gd := &v2.WatchGeneralData{
@@ -119,7 +121,7 @@ func unpackWatch(d *schema.ResourceData) *v2.Watch {
 	if v, ok := d.GetOk("resources"); ok {
 		r := &[]v2.WatchProjectResource{}
 		for _, res := range v.([]interface{}) {
-			*r = append(*r, *unpackProjectResource(res))
+			*r = append(*r, *expandProjectResource(res))
 		}
 		pr.Resources = r
 	}
@@ -128,7 +130,7 @@ func unpackWatch(d *schema.ResourceData) *v2.Watch {
 	ap := &[]v2.WatchAssignedPolicy{}
 	if v, ok := d.GetOk("assigned_policies"); ok {
 		for _, pol := range v.([]interface{}) {
-			*ap = append(*ap, *unpackAssignedPolicy(pol))
+			*ap = append(*ap, *expandAssignedPolicy(pol))
 		}
 	}
 	watch.AssignedPolicies = ap
@@ -136,7 +138,7 @@ func unpackWatch(d *schema.ResourceData) *v2.Watch {
 	return watch
 }
 
-func unpackProjectResource(rawCfg interface{}) *v2.WatchProjectResource {
+func expandProjectResource(rawCfg interface{}) *v2.WatchProjectResource {
 	resource := new(v2.WatchProjectResource)
 
 	cfg := rawCfg.(map[string]interface{})
@@ -148,31 +150,33 @@ func unpackProjectResource(rawCfg interface{}) *v2.WatchProjectResource {
 		resource.Name = xray.String(v.(string))
 	}
 	if v, ok := cfg["filters"]; ok {
-		filters := &[]v2.WatchFilter{}
-		for _, f := range v.([]interface{}) {
-			*filters = append(*filters, *unpackFilter(f))
-		}
-		resource.Filters = filters
+		resourceFilters := expandFilters(v.([]interface{}))
+		resource.Filters = &resourceFilters
 	}
 
 	return resource
 }
 
-func unpackFilter(rawCfg interface{}) *v2.WatchFilter {
-	filter := new(v2.WatchFilter)
+func expandFilters(l []interface{}) []v2.WatchFilter {
+	filters := make([]v2.WatchFilter, 0, len(l))
 
-	cfg := rawCfg.(map[string]interface{})
-	filter.Type = xray.String(cfg["type"].(string))
+	for _, raw := range l {
+		filter := new(v2.WatchFilter)
+		f := raw.(map[string]interface{})
+		filter.Type = xray.String(f["type"].(string))
+		valueWrapper := new(v2.WatchFilterValueWrapper)
+		fv := new(v2.WatchFilterValue)
+		fv.Value = xray.String(f["value"].(string))
+		valueWrapper.WatchFilterValue = *fv
+		filter.Value = valueWrapper
 
-	wf := new(v2.WatchFilterValueWrapper)
-	if err := wf.UnmarshalJSON([]byte(cfg["value"].(string))); err == nil {
-		filter.Value = wf
+		filters = append(filters, *filter)
 	}
 
-	return filter
+	return filters
 }
 
-func unpackAssignedPolicy(rawCfg interface{}) *v2.WatchAssignedPolicy {
+func expandAssignedPolicy(rawCfg interface{}) *v2.WatchAssignedPolicy {
 	policy := new(v2.WatchAssignedPolicy)
 
 	cfg := rawCfg.(map[string]interface{})
@@ -182,12 +186,12 @@ func unpackAssignedPolicy(rawCfg interface{}) *v2.WatchAssignedPolicy {
 	return policy
 }
 
-func packProjectResources(resources *v2.WatchProjectResources) []interface{} {
+func flattenProjectResources(resources *v2.WatchProjectResources) []interface{} {
 	if resources == nil || resources.Resources == nil {
 		return []interface{}{}
 	}
 
-	packedResources := []interface{}{}
+	l := []interface{}{}
 	for _, res := range *resources.Resources {
 		m := make(map[string]interface{})
 		m["type"] = res.Type
@@ -197,49 +201,49 @@ func packProjectResources(resources *v2.WatchProjectResources) []interface{} {
 		if res.BinaryManagerId != nil {
 			m["bin_mgr_id"] = res.BinaryManagerId
 		}
-		m["filters"] = packFilters(res.Filters)
-		packedResources = append(packedResources, m)
+		m["filters"] = flattenFilters(res.Filters)
+		l = append(l, m)
 	}
 
-	return packedResources
+	return l
 }
 
-func packFilters(filters *[]v2.WatchFilter) []interface{} {
+func flattenFilters(filters *[]v2.WatchFilter) []interface{} {
 	if filters == nil {
 		return []interface{}{}
 	}
 
-	packedFilters := []interface{}{}
+	l := []interface{}{}
 	for _, f := range *filters {
 		m := make(map[string]interface{})
 		m["type"] = f.Type
-		m["value"] = f.Value.WatchFilterValue
-		packedFilters = append(packedFilters, m)
+		m["value"] = f.Value.WatchFilterValue.Value
+		l = append(l, m)
 	}
 
-	return packedFilters
+	return l
 }
 
-func packAssignedPolicies(policies *[]v2.WatchAssignedPolicy) []interface{} {
+func flattenAssignedPolicies(policies *[]v2.WatchAssignedPolicy) []interface{} {
 	if policies == nil {
 		return []interface{}{}
 	}
 
-	packedPolicies := []interface{}{}
+	l := []interface{}{}
 	for _, p := range *policies {
 		m := make(map[string]interface{})
 		m["name"] = p.Name
 		m["type"] = p.Type
-		packedPolicies = append(packedPolicies, m)
+		l = append(l, m)
 	}
 
-	return packedPolicies
+	return l
 }
 
 func resourceXrayWatchCreate(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*xray.Xray)
 
-	watch := unpackWatch(d)
+	watch := expandWatch(d)
 
 	_, err := c.V2.Watches.CreateWatch(context.Background(), watch)
 	if err != nil {
@@ -268,10 +272,10 @@ func resourceXrayWatchRead(d *schema.ResourceData, meta interface{}) error {
 	if err := d.Set("active", watch.GeneralData.Active); err != nil {
 		return err
 	}
-	if err := d.Set("resources", packProjectResources(watch.ProjectResources)); err != nil {
+	if err := d.Set("resources", flattenProjectResources(watch.ProjectResources)); err != nil {
 		return err
 	}
-	if err := d.Set("assigned_policies", packAssignedPolicies(watch.AssignedPolicies)); err != nil {
+	if err := d.Set("assigned_policies", flattenAssignedPolicies(watch.AssignedPolicies)); err != nil {
 		return err
 	}
 
@@ -281,7 +285,7 @@ func resourceXrayWatchRead(d *schema.ResourceData, meta interface{}) error {
 func resourceXrayWatchUpdate(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*xray.Xray)
 
-	watch := unpackWatch(d)
+	watch := expandWatch(d)
 	_, err := c.V2.Watches.UpdateWatch(context.Background(), d.Id(), watch)
 	if err != nil {
 		return err

@@ -47,10 +47,13 @@ func TestAccWatch_basic(t *testing.T) {
 	})
 }
 
-// TODO can't do filters with all-repos apparently - it's an example in the docs but impossible via the web ui
+// These two tests are commented out because repoName and binMgrId must be real values but neither are terraformable so can't be put into these tests
+// I have tested this with some real values, but for obvious privacy reasons am not leaving those real values in here
 /*func TestAccWatch_filters(t *testing.T) {
 	watchName := "test-watch"
 	watchDesc := "watch created by xray acceptance tests"
+	repoName := "repo-name"
+	binMgrId := "artifactory-id"
 	policyName := "test-policy"
 	filterValue := "Debian"
 	updatedDesc := "updated watch description"
@@ -63,7 +66,7 @@ func TestAccWatch_basic(t *testing.T) {
 		Providers:    testAccProviders,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccXrayWatch_filters(watchName, watchDesc, policyName, filterValue),
+				Config: testAccXrayWatch_filters(watchName, watchDesc, repoName, binMgrId, policyName, filterValue),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr(resourceName, "name", watchName),
 					resource.TestCheckResourceAttr(resourceName, "description", watchDesc),
@@ -78,7 +81,7 @@ func TestAccWatch_basic(t *testing.T) {
 				ImportStateVerify: false,
 			},
 			{
-				Config: testAccXrayWatch_filters(watchName, updatedDesc, policyName, updatedValue),
+				Config: testAccXrayWatch_filters(watchName, updatedDesc, repoName, binMgrId, policyName, updatedValue),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr(resourceName, "name", watchName),
 					resource.TestCheckResourceAttr(resourceName, "description", updatedDesc),
@@ -86,6 +89,43 @@ func TestAccWatch_basic(t *testing.T) {
 					resource.TestCheckResourceAttr(resourceName, "resources.0.filters.0.value", updatedValue),
 					resource.TestCheckResourceAttr(resourceName, "resources.0.type", "repository"),
 				),
+			},
+			{
+				Config: testAccXrayWatch_unassigned(policyName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckWatchDoesntExist(resourceName),
+				),
+			},
+		},
+	})
+}
+
+func TestAccWatch_builds(t *testing.T) {
+	watchName := "test-watch"
+	policyName := "test-policy"
+	watchDesc := "watch created by xray acceptance tests"
+	binMgrId := "artifactory-id"
+	resourceName := "xray_watch.test"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		CheckDestroy: testAccCheckWatchDestroy,
+		Providers:    testAccProviders,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccXrayWatch_builds(watchName, watchDesc, policyName, binMgrId),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr(resourceName, "name", watchName),
+					resource.TestCheckResourceAttr(resourceName, "description", watchDesc),
+					resource.TestCheckResourceAttr(resourceName, "resources.0.type", "all-builds"),
+					resource.TestCheckResourceAttr(resourceName, "assigned_policies.0.name", policyName),
+					resource.TestCheckResourceAttr(resourceName, "assigned_policies.0.type", "security"),
+				),
+			},
+			{
+				ResourceName:      resourceName,
+				ImportState:       true,
+				ImportStateVerify: false,
 			},
 			{
 				Config: testAccXrayWatch_unassigned(policyName),
@@ -174,6 +214,7 @@ resource "xray_watch" "test" {
 		name = xray_policy.test.name
 		type = "security"
 	}
+	watch_recipients = ["test@example.com"]
 }
 `, policyName, name, description)
 }
@@ -204,7 +245,8 @@ resource "xray_policy" "test" {
 `, policyName)
 }
 
-func testAccXrayWatch_filters(name, description, policyName, filterValue string) string {
+// You seemingly can't do filters with all-repos - it's an example in the docs but doesn't seem possible via the web ui
+func testAccXrayWatch_filters(name, description, repoName, binMgrId, policyName, filterValue string) string {
 	return fmt.Sprintf(`
 resource "xray_policy" "test" {
 	name  = "%s"
@@ -230,8 +272,9 @@ resource "xray_watch" "test" {
 	name  = "%s"
 	description = "%s"
 	resources {
-		type = "all-repos"
-		name = "All Repositories"
+		type = "repository"
+		name = "%s"
+		bin_mgr_id = "%s"
 		filters {
 			type = "package-type"
 			value = "%s"
@@ -242,9 +285,45 @@ resource "xray_watch" "test" {
 		type = "security"
 	}
 }
-`,policyName, name, description, filterValue)
+`,policyName, name, description, repoName, binMgrId, filterValue)
 }
 
-// TODO single-repo watch - won't be runnable publicly since depends on actual repos
-// TODO watch specific build - probably also won't be testable publicly
-// TODO test watch_recipients
+func testAccXrayWatch_builds(name, description, policyName, binMgrId string) string {
+	return fmt.Sprintf(`
+resource "xray_policy" "test" {
+	name  = "%s"
+	description = "test policy description"
+	type = "security"
+
+	rules {
+		name = "rule-name"
+		priority = 1
+		criteria {
+			min_severity = "High"
+		}
+		actions {
+			block_download {
+				unscanned = true
+				active = true
+			}
+		}
+	}
+}
+
+resource "xray_watch" "test" {
+	name = "%s"
+	description = "%s"
+	resources {
+		type = "all-builds"
+		name = "All Builds"
+		bin_mgr_id = "%s"
+	}
+	assigned_policies {
+		name = xray_policy.test.name
+		type = "security"
+	}
+}
+`, policyName, name, description, binMgrId)
+}
+
+// TODO for bonus points - test builds with complex filters eg "filters":[{"type":"ant-patterns","value":{"ExcludePatterns":[],"IncludePatterns":["*"]}
